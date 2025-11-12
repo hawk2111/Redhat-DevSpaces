@@ -5,7 +5,7 @@ projects:
   - name: repozytoriumdobre
     git:
       remotes:
-        origin: https://github.com/TwojeRepozytorium/repozytoriumdobre.git
+        origin: https://github.com/hawk2111/Redhat-DevSpaces.git
 components:
   - name: vscode
     type: cheEditor
@@ -25,7 +25,7 @@ components:
 
   - name: python
     container:
-      image: quay.io/devspaces/python:3.12.12
+      image: quay.io/devspaces/python:3.11
       memoryLimit: 2Gi
       mountSources: true
       command:
@@ -44,3 +44,4 @@ commands:
       echo "Installing packages for nodejs and python..."
       npm install
       pip install -r requirements.txt
+
