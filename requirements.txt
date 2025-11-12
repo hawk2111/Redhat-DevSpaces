@@ -4,5 +4,4 @@ opencv-python
 protobuf
 easyocr
 Pillow
-vllm
 openai
