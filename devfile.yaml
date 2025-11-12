@@ -1,47 +1,83 @@
-apiVersion: 1.0.0
+schemaVersion: 2.2.0
 metadata:
-  name: repozytoriumdobre
-projects:
-  - name: repozytoriumdobre
-    git:
-      remotes:
-        origin: https://github.com/hawk2111/Redhat-DevSpaces.git
+  name: python-devspaces
+  version: 1.0.0
+  displayName: Python 3.12 + vLLM (Dev Spaces)
+  description: OpenShift Dev Spaces workspace with Python 3.12.12 and packages openai, vllm
+
+projects: []
+
 components:
-  - name: vscode
-    type: cheEditor
-    reference: vscode
-
-  - name: nodejs
+  - name: tools
     container:
-      image: quay.io/devspaces/nodejs:16
-      memoryLimit: 2Gi
+      # Small, reproducible base with Python 3.12.12
+      image: python:3.12.12-slim
+      memoryLimit: 8Gi
+      cpuRequest: "500m"
+      cpuLimit: "4"
       mountSources: true
+      sourceMapping: /projects
+      env:
+        - name: PIP_DISABLE_PIP_VERSION_CHECK
+          value: "1"
+        - name: PIP_NO_CACHE_DIR
+          value: "1"
+        # Make sure our venv is first on PATH once created
+        - name: VIRTUAL_ENV
+          value: /projects/.venv
+        - name: PATH
+          value: /projects/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      volumeMounts:
+        - name: pip-cache
+          path: /root/.cache/pip
+      # Keep the container running
       command:
-        - tail
-        - -f
-        - /dev/null
-    labels:
-      package: runtime
+        - sh
+      args:
+        - -c
+        - "while sleep 1000; do :; done"
 
-  - name: python
-    container:
-      image: quay.io/devspaces/python:3.11
-      memoryLimit: 2Gi
-      mountSources: true
-      command:
-        - tail
-        - -f
-        - /dev/null
-    labels:
-      package: runtime
+  - name: pip-cache
+    volume:
+      size: 2Gi
 
 commands:
-  - id: che:package
-    type: exec
-    label: Install packages
-    component: nodejs
-    commandLine: |
-      echo "Installing packages for nodejs and python..."
-      npm install
-      pip install -r requirements.txt
+  # Create a virtual environment and install deps
+  - id: create-venv-and-install
+    exec:
+      component: tools
+      workingDir: /projects
+      label: "Create venv & install openai, vllm"
+      commandLine: |
+        bash -lc '
+          python -m venv /projects/.venv
+          . /projects/.venv/bin/activate
+          python -m pip install --upgrade pip
+          # Install requested packages
+          pip install openai vllm
+          # Auto-activate venv in future terminals
+          if ! grep -q "/projects/.venv/bin/activate" ~/.bashrc; then
+            echo ". /projects/.venv/bin/activate" >> ~/.bashrc
+          fi
+        '
+      group:
+        kind: build
+        isDefault: true
 
+  # Simple sanity check command
+  - id: python-version
+    exec:
+      component: tools
+      workingDir: /projects
+      label: "Show Python & package versions"
+      commandLine: |
+        bash -lc '
+          python --version
+          python -c "import sys,openai; print(\"openai:\", openai.__version__); import importlib; print(\"vllm:\", importlib.import_module(\"vllm\").__version__)"
+        '
+      group:
+        kind: run
+
+events:
+  postStart:
+    - create-venv-and-install
