@@ -1,16 +1,15 @@
 schemaVersion: 2.2.0
 metadata:
-  name: python-devspaces
-  version: 1.0.0
-  displayName: Python 3.12 + vLLM (Dev Spaces)
-  description: OpenShift Dev Spaces workspace with Python 3.12.12 and packages openai, vllm
+  name: python-312-reqs
+  version: 1.2.0
+  displayName: Python 3.12 + requirements.txt (Dev Spaces)
+  description: OpenShift Dev Spaces with Python 3.12.12; deps installed from requirements.txt
 
 projects: []
 
 components:
   - name: tools
     container:
-      # Small, reproducible base with Python 3.12.12
       image: python:3.12.12-slim
       memoryLimit: 8Gi
       cpuRequest: "500m"
@@ -22,7 +21,6 @@ components:
           value: "1"
         - name: PIP_NO_CACHE_DIR
           value: "1"
-        # Make sure our venv is first on PATH once created
         - name: VIRTUAL_ENV
           value: /projects/.venv
         - name: PATH
@@ -30,32 +28,30 @@ components:
       volumeMounts:
         - name: pip-cache
           path: /root/.cache/pip
-      # Keep the container running
-      command:
-        - sh
-      args:
-        - -c
-        - "while sleep 1000; do :; done"
+      command: ["sh"]
+      args: ["-c", "while sleep 1000; do :; done"]
 
   - name: pip-cache
     volume:
       size: 2Gi
 
 commands:
-  # Create a virtual environment and install deps
   - id: create-venv-and-install
     exec:
       component: tools
       workingDir: /projects
-      label: "Create venv & install openai, vllm"
+      label: "Create venv & install from requirements.txt"
       commandLine: |
         bash -lc '
+          set -e
           python -m venv /projects/.venv
           . /projects/.venv/bin/activate
-          python -m pip install --upgrade pip
-          # Install requested packages
-          pip install openai vllm
-          # Auto-activate venv in future terminals
+          python -m pip install --upgrade pip wheel setuptools
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found at /projects — skipping dependency install."
+          fi
           if ! grep -q "/projects/.venv/bin/activate" ~/.bashrc; then
             echo ". /projects/.venv/bin/activate" >> ~/.bashrc
           fi
@@ -64,7 +60,24 @@ commands:
         kind: build
         isDefault: true
 
-  # Simple sanity check command
+  - id: sync-deps
+    exec:
+      component: tools
+      workingDir: /projects
+      label: "Re-install deps from requirements.txt"
+      commandLine: |
+        bash -lc '
+          set -e
+          . /projects/.venv/bin/activate
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found."
+          fi
+        '
+      group:
+        kind: run
+
   - id: python-version
     exec:
       component: tools
@@ -72,8 +85,8 @@ commands:
       label: "Show Python & package versions"
       commandLine: |
         bash -lc '
+          . /projects/.venv/bin/activate
           python --version
-          python -c "import sys,openai; print(\"openai:\", openai.__version__); import importlib; print(\"vllm:\", importlib.import_module(\"vllm\").__version__)"
         '
       group:
         kind: run
