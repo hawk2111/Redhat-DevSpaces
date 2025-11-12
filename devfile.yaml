@@ -8,6 +8,7 @@ metadata:
 projects: []
 
 components:
+  # ---- Python toolchain ----
   - name: tools
     container:
       # OpenShift-friendly base (runs as arbitrary UID)
@@ -36,8 +37,43 @@ components:
     volume:
       size: 2Gi
 
+  # ---- Node.js toolchain for React ----
+  - name: node
+    container:
+      image: registry.access.redhat.com/ubi9/nodejs-20
+      memoryLimit: 4Gi
+      cpuRequest: "300m"
+      cpuLimit: "2"
+      mountSources: true
+      sourceMapping: /projects
+      env:
+        # Set this if your React app is in a subfolder (e.g., frontend)
+        # Use '.' if package.json is at the repo root
+        - name: FRONTEND_DIR
+          value: .
+        - name: CI
+          value: "false"   # prevents create-react-app from treating missing git as fatal
+        - name: NPM_CONFIG_FUND
+          value: "false"
+        - name: NPM_CONFIG_AUDIT
+          value: "false"
+      volumeMounts:
+        - name: npm-cache
+          path: /home/user/.npm
+      endpoints:
+        - name: react-dev
+          targetPort: 3000
+          exposure: public
+          protocol: http
+      command: ["sh"]
+      args: ["-c", "while sleep 1000; do :; done"]
+
+  - name: npm-cache
+    volume:
+      size: 2Gi
+
 commands:
-  # Non-fatal postStart bootstrap. Writes logs and never fails the pod.
+  # ---------- Python side ----------
   - id: bootstrap-venv-and-install
     exec:
       component: tools
@@ -79,8 +115,8 @@ commands:
       commandLine: |
         bash -lc '
           set -euxo pipefail
+          python -m pip install --upgrade pip wheel setuptools
           test -f /projects/redhat-devspaces/requirements.txt
-          python -m pip install --upgrade pip
           python3 -m venv /projects/.venv
           . /projects/.venv/bin/activate
           python -m pip install --upgrade pip wheel setuptools
@@ -106,7 +142,59 @@ commands:
       group:
         kind: run
 
+  # ---------- Node/React side ----------
+  - id: node-install
+    exec:
+      component: node
+      workingDir: /projects
+      label: "Node: install frontend deps (npm ci || npm install)"
+      commandLine: |
+        bash -lc '
+          set -euo pipefail
+          cd "/projects/${FRONTEND_DIR:-.}"
+          if [ ! -f package.json ]; then
+            echo "No package.json in $(pwd); set FRONTEND_DIR env to your React app folder." >&2
+            exit 0
+          fi
+          if command -v npm >/dev/null 2>&1; then
+            (npm ci || npm install)
+          else
+            echo "npm not found" >&2
+            exit 1
+          fi
+        '
+      group: { kind: build }
+
+  - id: node-start
+    exec:
+      component: node
+      workingDir: /projects
+      label: "Node: start React dev server (exposes endpoint :3000)"
+      commandLine: |
+        bash -lc '
+          set -euo pipefail
+          cd "/projects/${FRONTEND_DIR:-.}"
+          if [ ! -f package.json ]; then
+            echo "No package.json in $(pwd); set FRONTEND_DIR env to your React app folder." >&2
+            exit 1
+          fi
+          # Common scripts: start / dev
+          if npm run | grep -qE " start| dev"; then
+            # CRA uses PORT, Vite uses default 5173; we’ll force 3000 for the exposed endpoint
+            export PORT=3000
+            export HOST=0.0.0.0
+            if npm run | grep -q " dev"; then
+              npm run dev -- --host 0.0.0.0 --port 3000
+            else
+              npm run start
+            fi
+          else
+            echo "No start/dev script in package.json." >&2
+            exit 1
+          fi
+        '
+      group: { kind: run }
+
 events:
   postStart:
     - bootstrap-venv-and-install
-
