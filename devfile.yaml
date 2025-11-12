@@ -1,9 +1,9 @@
 schemaVersion: 2.2.0
 metadata:
-  name: py312-node20-react
+  name: python-node
   version: 1.4.0
-  displayName: Python 3.12 + Node 20 (React) — Dev Spaces
-  description: OpenShift-friendly workspace with Python 3.12.12 and Node.js 20 for React apps; installs Python deps from requirements.txt
+  displayName: Python + Node (React) — Dev Spaces
+  description: OpenShift-friendly workspace with Python and Node.js for React apps; installs Python deps from requirements.txt
 
 projects: []
 
@@ -40,7 +40,7 @@ components:
   # ---- Node.js toolchain for React ----
   - name: node
     container:
-      image: registry.access.redhat.com/ubi9/nodejs-20
+      image: registry.access.redhat.com/ubi9/nodejs-24
       memoryLimit: 4Gi
       cpuRequest: "300m"
       cpuLimit: "2"
