@@ -1,33 +1,34 @@
 schemaVersion: 2.2.0
 metadata:
   name: python-312-reqs
-  version: 1.2.0
-  displayName: Python 3.12 + requirements.txt (Dev Spaces)
-  description: OpenShift Dev Spaces with Python 3.12.12; deps installed from requirements.txt
+  version: 1.3.0
+  displayName: Python 3.12 + requirements.txt (Dev Spaces, robust)
+  description: OpenShift-friendly workspace with Python 3.12.12; non-fatal postStart install
 
 projects: []
 
 components:
   - name: tools
     container:
-      image: python:3.12.12-slim
+      # OpenShift-friendly base (runs as arbitrary UID)
+      image: registry.access.redhat.com/ubi9/python-312
       memoryLimit: 8Gi
       cpuRequest: "500m"
       cpuLimit: "4"
       mountSources: true
       sourceMapping: /projects
       env:
-        - name: PIP_DISABLE_PIP_VERSION_CHECK
-          value: "1"
-        - name: PIP_NO_CACHE_DIR
-          value: "1"
         - name: VIRTUAL_ENV
           value: /projects/.venv
         - name: PATH
           value: /projects/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PIP_DISABLE_PIP_VERSION_CHECK
+          value: "1"
+        - name: PIP_NO_CACHE_DIR
+          value: "1"
       volumeMounts:
         - name: pip-cache
-          path: /root/.cache/pip
+          path: /home/user/.cache/pip
       command: ["sh"]
       args: ["-c", "while sleep 1000; do :; done"]
 
@@ -36,61 +37,74 @@ components:
       size: 2Gi
 
 commands:
-  - id: create-venv-and-install
+  # Non-fatal postStart bootstrap. Writes logs and never fails the pod.
+  - id: bootstrap-venv-and-install
     exec:
       component: tools
       workingDir: /projects
-      label: "Create venv & install from requirements.txt"
+      label: "Bootstrap venv & install from requirements.txt (non-fatal)"
       commandLine: |
         bash -lc '
-          set -e
-          python -m venv /projects/.venv
-          . /projects/.venv/bin/activate
-          python -m pip install --upgrade pip wheel setuptools
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt not found at /projects — skipping dependency install."
-          fi
-          if ! grep -q "/projects/.venv/bin/activate" ~/.bashrc; then
-            echo ". /projects/.venv/bin/activate" >> ~/.bashrc
-          fi
+          LOG=/projects/.devspaces/install.log
+          mkdir -p /projects/.devspaces
+          {
+            echo "== $(date) bootstrap start =="
+            python3 -m venv /projects/.venv || true
+            . /projects/.venv/bin/activate 2>/dev/null || true
+            python -m pip install --upgrade pip wheel setuptools || true
+            if [ -f requirements.txt ]; then
+              echo "Installing from requirements.txt ..."
+              pip install -r requirements.txt || echo "[WARN] pip install failed (see above)."
+            else
+              echo "requirements.txt not found; skipping."
+            fi
+            if ! grep -q "/projects/.venv/bin/activate" ~/.bashrc 2>/dev/null; then
+              echo ". /projects/.venv/bin/activate" >> ~/.bashrc || true
+            fi
+            echo "== $(date) bootstrap end =="
+          } | tee -a "$LOG"
+          # Always succeed to avoid workspace crash
+          exit 0
         '
       group:
         kind: build
         isDefault: true
 
-  - id: sync-deps
+  # Manual, strict installer you can run when ready; fails visibly in the terminal if something’s wrong.
+  - id: install-deps
     exec:
       component: tools
       workingDir: /projects
-      label: "Re-install deps from requirements.txt"
+      label: "Install deps from requirements.txt (manual)"
       commandLine: |
         bash -lc '
-          set -e
+          set -euxo pipefail
+          test -f requirements.txt
+          python3 -m venv /projects/.venv
           . /projects/.venv/bin/activate
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt not found."
+          python -m pip install --upgrade pip wheel setuptools
+          pip install -r requirements.txt
+          if ! grep -q "/projects/.venv/bin/activate" ~/.bashrc 2>/dev/null; then
+            echo ". /projects/.venv/bin/activate" >> ~/.bashrc
           fi
+          python --version
         '
       group:
         kind: run
 
-  - id: python-version
+  - id: show-versions
     exec:
       component: tools
       workingDir: /projects
       label: "Show Python & package versions"
       commandLine: |
         bash -lc '
-          . /projects/.venv/bin/activate
-          python --version
+          . /projects/.venv/bin/activate 2>/dev/null || true
+          python --version || true
         '
       group:
         kind: run
 
 events:
   postStart:
-    - create-venv-and-install
+    - bootstrap-venv-and-install
