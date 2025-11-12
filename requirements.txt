@@ -1,4 +1,3 @@
-﻿mysql-connector-python
 numpy
 opencv-python
 protobuf
