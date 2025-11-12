@@ -80,6 +80,7 @@ commands:
         bash -lc '
           set -euxo pipefail
           test -f /projects/redhat-devspaces/requirements.txt
+          python -m pip install --upgrade pip
           python3 -m venv /projects/.venv
           . /projects/.venv/bin/activate
           python -m pip install --upgrade pip wheel setuptools
@@ -108,3 +109,4 @@ commands:
 events:
   postStart:
     - bootstrap-venv-and-install
+
