@@ -1,0 +1,8 @@
+﻿mysql-connector-python==8.0.25
+numpy==2.0.2
+opencv-python==4.10.0.84
+protobuf==5.29.2
+easyocr==1.7.0
+Pillow==9.5.0
+vllm==0.11.0
+openai==2.7.2
